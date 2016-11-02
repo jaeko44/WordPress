@@ -11,29 +11,41 @@
  * using the undo shortcut, or the undo button in the toolbar.
  */
 ( function( tinymce, setTimeout ) {
+	if ( tinymce.Env.ie && tinymce.Env.ie < 9 ) {
+		return;
+	}
+
+	/**
+	 * Escapes characters for use in a Regular Expression.
+	 *
+	 * @param  {String} string Characters to escape
+	 *
+	 * @return {String}        Escaped characters
+	 */
+	function escapeRegExp( string ) {
+		return string.replace( /[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, '\\$&' );
+	}
+
 	tinymce.PluginManager.add( 'wptextpattern', function( editor ) {
 		var VK = tinymce.util.VK;
+		var settings = editor.settings.wptextpattern || {};
 
-		var spacePatterns = [
+		var spacePatterns = settings.space || [
 			{ regExp: /^[*-]\s/, cmd: 'InsertUnorderedList' },
 			{ regExp: /^1[.)]\s/, cmd: 'InsertOrderedList' }
 		];
 
-		var enterPatterns = [
+		var enterPatterns = settings.enter || [
 			{ start: '##', format: 'h2' },
 			{ start: '###', format: 'h3' },
 			{ start: '####', format: 'h4' },
 			{ start: '#####', format: 'h5' },
 			{ start: '######', format: 'h6' },
 			{ start: '>', format: 'blockquote' },
-			{ regExp: /^\s*(?:(?:\* ?){3,}|(?:_ ?){3,}|(?:- ?){3,})\s*$/, element: 'hr' }
+			{ regExp: /^(-){3,}$/, element: 'hr' }
 		];
 
-		var inlinePatterns = [
-			{ start: '*', end: '*', format: 'italic' },
-			{ start: '**', end: '**', format: 'bold' },
-			{ start: '_', end: '_', format: 'italic' },
-			{ start: '__', end: '__', format: 'bold' },
+		var inlinePatterns = settings.inline || [
 			{ start: '`', end: '`', format: 'code' }
 		];
 
@@ -59,18 +71,19 @@
 				event.stopImmediatePropagation();
 			}
 
-			if ( event.keyCode === VK.ENTER && ! VK.modifierPressed( event ) ) {
+			if ( VK.metaKeyPressed( event ) ) {
+				return;
+			}
+
+			if ( event.keyCode === VK.ENTER ) {
 				enter();
+			// Wait for the browser to insert the character.
+			} else if ( event.keyCode === VK.SPACEBAR ) {
+				setTimeout( space );
+			} else if ( event.keyCode > 47 && ! ( event.keyCode >= 91 && event.keyCode <= 93 ) ) {
+				setTimeout( inline );
 			}
 		}, true );
-
-		editor.on( 'keyup', function( event ) {
-			if ( event.keyCode === VK.SPACEBAR && ! event.ctrlKey && ! event.metaKey && ! event.altKey ) {
-				space();
-			} else if ( event.keyCode > 47 && ! ( event.keyCode >= 91 && event.keyCode <= 93 ) ) {
-				inline();
-			}
-		} );
 
 		function inline() {
 			var rng = editor.selection.getRng();
@@ -82,40 +95,39 @@
 			var format;
 			var zero;
 
-			if ( node.nodeType !== 3 || ! node.data.length || ! offset ) {
+			// We need a non empty text node with an offset greater than zero.
+			if ( ! node || node.nodeType !== 3 || ! node.data.length || ! offset ) {
 				return;
 			}
 
+			// The ending character should exist in the patterns registered.
 			if ( tinymce.inArray( chars, node.data.charAt( offset - 1 ) ) === -1 ) {
 				return;
 			}
 
-			function findStart( node ) {
-				var i = inlinePatterns.length;
-				var offset;
+			var string = node.data.slice( 0, offset );
 
-				while ( i-- ) {
-					pattern = inlinePatterns[ i ];
-					offset = node.data.indexOf( pattern.end );
+			tinymce.each( inlinePatterns, function( p ) {
+				var regExp = new RegExp( escapeRegExp( p.start ) + '\\S+' + escapeRegExp( p.end ) + '$' );
+				var match = string.match( regExp );
 
-					if ( offset !== -1 ) {
-						return offset;
-					}
+				if ( ! match ) {
+					return;
 				}
-			}
 
-			startOffset = findStart( node );
-			endOffset = node.data.lastIndexOf( pattern.end );
+				// Don't allow pattern characters in the text.
+				if ( node.data.slice( match.index + p.start.length, offset - p.end.length ).indexOf( p.start.slice( 0, 1 ) ) !== -1 ) {
+					return;
+				}
 
-			if ( startOffset === endOffset || endOffset === -1 ) {
-				return;
-			}
+				startOffset = match.index;
+				endOffset = offset - p.end.length;
+				pattern = p;
 
-			if ( endOffset - startOffset <= pattern.start.length ) {
-				return;
-			}
+				return false;
+			} );
 
-			if ( node.data.slice( startOffset + pattern.start.length, endOffset ).indexOf( pattern.start.slice( 0, 1 ) ) !== -1 ) {
+			if ( ! pattern ) {
 				return;
 			}
 
@@ -125,7 +137,7 @@
 				editor.undoManager.add();
 
 				editor.undoManager.transact( function() {
-					node.insertData( offset, '\u200b' );
+					node.insertData( offset, '\uFEFF' );
 
 					node = node.splitText( startOffset );
 					zero = node.splitText( offset - startOffset );
@@ -146,7 +158,7 @@
 						var offset;
 
 						if ( zero ) {
-							offset = zero.data.indexOf( '\u200b' );
+							offset = zero.data.indexOf( '\uFEFF' );
 
 							if ( offset !== -1 ) {
 								zero.deleteData( offset, offset + 1 );

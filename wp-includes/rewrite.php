@@ -144,7 +144,7 @@ function add_rewrite_rule( $regex, $query, $after = 'bottom' ) {
  * Add a new rewrite tag (like %postname%).
  *
  * The $query parameter is optional. If it is omitted you must ensure that
- * you call this on, or before, the 'init' hook. This is because $query defaults
+ * you call this on, or before, the {@see 'init'} hook. This is because $query defaults
  * to "$tag=", and for this to work a new query var has to be added.
  *
  * @since 2.1.0
@@ -202,7 +202,7 @@ function remove_rewrite_tag( $tag ) {
 function add_permastruct( $name, $struct, $args = array() ) {
 	global $wp_rewrite;
 
-	// backwards compatibility for the old parameters: $with_front and $ep_mask
+	// Back-compat for the old parameters: $with_front and $ep_mask.
 	if ( ! is_array( $args ) )
 		$args = array( 'with_front' => $args );
 	if ( func_num_args() == 4 )
@@ -212,7 +212,7 @@ function add_permastruct( $name, $struct, $args = array() ) {
 }
 
 /**
- * Remove permalink structure.
+ * Removes a permalink structure.
  *
  * Can only be used to remove permastructs that were added using add_permastruct().
  * Built-in permastructs cannot be removed.
@@ -311,7 +311,7 @@ function add_rewrite_endpoint( $name, $places, $query_var = true ) {
 }
 
 /**
- * Filter the URL base for taxonomies.
+ * Filters the URL base for taxonomies.
  *
  * To remove any manually prepended /index.php/.
  *
@@ -447,7 +447,7 @@ function wp_resolve_numeric_slug_conflicts( $query_vars = array() ) {
 }
 
 /**
- * Examine a url and try to determine the post ID it represents.
+ * Examine a URL and try to determine the post ID it represents.
  *
  * Checks are supposedly from the hosted site blog.
  *
@@ -463,7 +463,7 @@ function url_to_postid( $url ) {
 	global $wp_rewrite;
 
 	/**
-	 * Filter the URL to derive the post ID from.
+	 * Filters the URL to derive the post ID from.
 	 *
 	 * @since 2.2.0
 	 *
@@ -487,7 +487,8 @@ function url_to_postid( $url ) {
 	$url = $url_split[0];
 
 	// Set the correct URL scheme.
-	$url = set_url_scheme( $url );
+	$scheme = parse_url( home_url(), PHP_URL_SCHEME );
+	$url = set_url_scheme( $url, $scheme );
 
 	// Add 'www.' if it is absent and should be there
 	if ( false !== strpos(home_url(), '://www.') && false === strpos($url, '://www.') )

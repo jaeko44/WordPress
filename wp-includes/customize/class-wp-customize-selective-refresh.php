@@ -1,6 +1,6 @@
 <?php
 /**
- * WordPress Customize Selective Refresh class
+ * Customize API: WP_Customize_Selective_Refresh class
  *
  * @package WordPress
  * @subpackage Customize
@@ -8,7 +8,7 @@
  */
 
 /**
- * WordPress Customize Selective Refresh class.
+ * Core Customizer class for implementing selective refresh.
  *
  * @since 4.5.0
  */
@@ -24,6 +24,8 @@ final class WP_Customize_Selective_Refresh {
 	/**
 	 * Customize manager.
 	 *
+	 * @since 4.5.0
+	 * @access public
 	 * @var WP_Customize_Manager
 	 */
 	public $manager;
@@ -182,8 +184,11 @@ final class WP_Customize_Selective_Refresh {
 			'renderQueryVar' => self::RENDER_QUERY_VAR,
 			'l10n'           => array(
 				'shiftClickToEdit' => __( 'Shift-click to edit this element.' ),
-				/* translators: %s: message from JS error */
-				'errorMessageTpl'  => __( 'Script error: %s' ),
+				'clickEditMenu' => __( 'Click to edit this menu.' ),
+				'clickEditWidget' => __( 'Click to edit this widget.' ),
+				'clickEditTitle' => __( 'Click to edit the site title.' ),
+				'clickEditMisc' => __( 'Click to edit this element.' ),
+				'editShortcutVisibilityToggle'  => __( 'Toggle edit shortcuts' ),
 				/* translators: %s: document.write() */
 				'badDocumentWrite' => sprintf( __( '%s is forbidden' ), 'document.write()' ),
 			),
@@ -307,19 +312,15 @@ final class WP_Customize_Selective_Refresh {
 			return;
 		}
 
-		$this->manager->remove_preview_signature();
-
 		/*
 		 * Note that is_customize_preview() returning true will entail that the
 		 * user passed the 'customize' capability check and the nonce check, since
 		 * WP_Customize_Manager::setup_theme() is where the previewing flag is set.
 		 */
 		if ( ! is_customize_preview() ) {
-			status_header( 403 );
-			wp_send_json_error( 'expected_customize_preview' );
+			wp_send_json_error( 'expected_customize_preview', 403 );
 		} else if ( ! isset( $_POST['partials'] ) ) {
-			status_header( 400 );
-			wp_send_json_error( 'missing_partials' );
+			wp_send_json_error( 'missing_partials', 400 );
 		}
 
 		$partials = json_decode( wp_unslash( $_POST['partials'] ), true );
@@ -401,6 +402,10 @@ final class WP_Customize_Selective_Refresh {
 		if ( defined( 'WP_DEBUG_DISPLAY' ) && WP_DEBUG_DISPLAY ) {
 			$response['errors'] = $this->triggered_errors;
 		}
+
+		$setting_validities = $this->manager->validate_setting_values( $this->manager->unsanitized_post_values() );
+		$exported_setting_validities = array_map( array( $this->manager, 'prepare_setting_validity_for_js' ), $setting_validities );
+		$response['setting_validities'] = $exported_setting_validities;
 
 		/**
 		 * Filters the response from rendering the partials.

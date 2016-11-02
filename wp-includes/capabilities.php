@@ -67,6 +67,11 @@ function map_meta_cap( $cap, $user_id ) {
 			}
 		}
 
+		if ( ( get_option( 'page_for_posts' ) == $post->ID ) || ( get_option( 'page_on_front' ) == $post->ID ) ) {
+			$caps[] = 'manage_options';
+			break;
+		}
+
 		$post_type = get_post_type_object( $post->post_type );
 		if ( ! $post_type ) {
 			/* translators: 1: post type, 2: capability name */
@@ -243,16 +248,18 @@ function map_meta_cap( $cap, $user_id ) {
 			break;
 		}
 
+		$post_type = get_post_type( $post );
+
 		$caps = map_meta_cap( 'edit_post', $user_id, $post->ID );
 
 		$meta_key = isset( $args[ 1 ] ) ? $args[ 1 ] : false;
 
-		if ( $meta_key && has_filter( "auth_post_meta_{$meta_key}" ) ) {
+		if ( $meta_key && ( has_filter( "auth_post_meta_{$meta_key}" ) || has_filter( "auth_post_{$post_type}_meta_{$meta_key}" ) ) ) {
 			/**
-			 * Filter whether the user is allowed to add post meta to a post.
+			 * Filters whether the user is allowed to add post meta to a post.
 			 *
 			 * The dynamic portion of the hook name, `$meta_key`, refers to the
-			 * meta key passed to {@see map_meta_cap()}.
+			 * meta key passed to map_meta_cap().
 			 *
 			 * @since 3.3.0
 			 *
@@ -264,6 +271,24 @@ function map_meta_cap( $cap, $user_id ) {
 			 * @param array  $caps     User capabilities.
 			 */
 			$allowed = apply_filters( "auth_post_meta_{$meta_key}", false, $meta_key, $post->ID, $user_id, $cap, $caps );
+
+			/**
+			 * Filters whether the user is allowed to add post meta to a post of a given type.
+			 *
+			 * The dynamic portions of the hook name, `$meta_key` and `$post_type`,
+			 * refer to the meta key passed to map_meta_cap() and the post type, respectively.
+			 *
+			 * @since 4.6.0
+			 *
+			 * @param bool   $allowed  Whether the user can add the post meta. Default false.
+			 * @param string $meta_key The meta key.
+			 * @param int    $post_id  Post ID.
+			 * @param int    $user_id  User ID.
+			 * @param string $cap      Capability name.
+			 * @param array  $caps     User capabilities.
+			 */
+			$allowed = apply_filters( "auth_post_{$post_type}_meta_{$meta_key}", $allowed, $meta_key, $post->ID, $user_id, $cap, $caps );
+
 			if ( ! $allowed )
 				$caps[] = $cap;
 		} elseif ( $meta_key && is_protected_meta( $meta_key, 'post' ) ) {
@@ -295,6 +320,7 @@ function map_meta_cap( $cap, $user_id ) {
 		else
 			$caps[] = 'do_not_allow';
 		break;
+	case 'unfiltered_css' :
 	case 'unfiltered_html' :
 		// Disallow unfiltered_html for all users, even admins and super admins.
 		if ( defined( 'DISALLOW_UNFILTERED_HTML' ) && DISALLOW_UNFILTERED_HTML )
@@ -302,7 +328,7 @@ function map_meta_cap( $cap, $user_id ) {
 		elseif ( is_multisite() && ! is_super_admin( $user_id ) )
 			$caps[] = 'do_not_allow';
 		else
-			$caps[] = $cap;
+			$caps[] = 'unfiltered_html';
 		break;
 	case 'edit_files':
 	case 'edit_plugins':
@@ -377,6 +403,53 @@ function map_meta_cap( $cap, $user_id ) {
 	case 'delete_site':
 		$caps[] = 'manage_options';
 		break;
+	case 'edit_term':
+	case 'delete_term':
+	case 'assign_term':
+		$term_id = $args[0];
+		$term = get_term( $term_id );
+		if ( ! $term || is_wp_error( $term ) ) {
+			$caps[] = 'do_not_allow';
+			break;
+		}
+
+		$tax = get_taxonomy( $term->taxonomy );
+		if ( ! $tax ) {
+			$caps[] = 'do_not_allow';
+			break;
+		}
+
+		if ( 'delete_term' === $cap && ( $term->term_id == get_option( 'default_' . $term->taxonomy ) ) ) {
+			$caps[] = 'do_not_allow';
+			break;
+		}
+
+		$taxo_cap = $cap . 's';
+
+		$caps = map_meta_cap( $tax->cap->$taxo_cap, $user_id, $term_id );
+
+		break;
+	case 'manage_post_tags':
+	case 'edit_categories':
+	case 'edit_post_tags':
+	case 'delete_categories':
+	case 'delete_post_tags':
+		$caps[] = 'manage_categories';
+		break;
+	case 'assign_categories':
+	case 'assign_post_tags':
+		$caps[] = 'edit_posts';
+		break;
+	case 'create_sites':
+	case 'delete_sites':
+	case 'manage_network':
+	case 'manage_sites':
+	case 'manage_network_users':
+	case 'manage_network_plugins':
+	case 'manage_network_themes':
+	case 'manage_network_options':
+		$caps[] = $cap;
+		break;
 	default:
 		// Handle meta capabilities for custom post types.
 		global $post_type_meta_caps;
@@ -390,7 +463,7 @@ function map_meta_cap( $cap, $user_id ) {
 	}
 
 	/**
-	 * Filter a user's capabilities depending on specific context and/or privilege.
+	 * Filters a user's capabilities depending on specific context and/or privilege.
 	 *
 	 * @since 2.8.0
 	 *
@@ -617,5 +690,101 @@ function is_super_admin( $user_id = false ) {
 			return true;
 	}
 
+	return false;
+}
+
+/**
+ * Grants Super Admin privileges.
+ *
+ * @since 3.0.0
+ *
+ * @global array $super_admins
+ *
+ * @param int $user_id ID of the user to be granted Super Admin privileges.
+ * @return bool True on success, false on failure. This can fail when the user is
+ *              already a super admin or when the `$super_admins` global is defined.
+ */
+function grant_super_admin( $user_id ) {
+	// If global super_admins override is defined, there is nothing to do here.
+	if ( isset( $GLOBALS['super_admins'] ) || ! is_multisite() ) {
+		return false;
+	}
+
+	/**
+	 * Fires before the user is granted Super Admin privileges.
+	 *
+	 * @since 3.0.0
+	 *
+	 * @param int $user_id ID of the user that is about to be granted Super Admin privileges.
+	 */
+	do_action( 'grant_super_admin', $user_id );
+
+	// Directly fetch site_admins instead of using get_super_admins()
+	$super_admins = get_site_option( 'site_admins', array( 'admin' ) );
+
+	$user = get_userdata( $user_id );
+	if ( $user && ! in_array( $user->user_login, $super_admins ) ) {
+		$super_admins[] = $user->user_login;
+		update_site_option( 'site_admins' , $super_admins );
+
+		/**
+		 * Fires after the user is granted Super Admin privileges.
+		 *
+		 * @since 3.0.0
+		 *
+		 * @param int $user_id ID of the user that was granted Super Admin privileges.
+		 */
+		do_action( 'granted_super_admin', $user_id );
+		return true;
+	}
+	return false;
+}
+
+/**
+ * Revokes Super Admin privileges.
+ *
+ * @since 3.0.0
+ *
+ * @global array $super_admins
+ *
+ * @param int $user_id ID of the user Super Admin privileges to be revoked from.
+ * @return bool True on success, false on failure. This can fail when the user's email
+ *              is the network admin email or when the `$super_admins` global is defined.
+ */
+function revoke_super_admin( $user_id ) {
+	// If global super_admins override is defined, there is nothing to do here.
+	if ( isset( $GLOBALS['super_admins'] ) || ! is_multisite() ) {
+		return false;
+	}
+
+	/**
+	 * Fires before the user's Super Admin privileges are revoked.
+	 *
+	 * @since 3.0.0
+	 *
+	 * @param int $user_id ID of the user Super Admin privileges are being revoked from.
+	 */
+	do_action( 'revoke_super_admin', $user_id );
+
+	// Directly fetch site_admins instead of using get_super_admins()
+	$super_admins = get_site_option( 'site_admins', array( 'admin' ) );
+
+	$user = get_userdata( $user_id );
+	if ( $user && 0 !== strcasecmp( $user->user_email, get_site_option( 'admin_email' ) ) ) {
+		if ( false !== ( $key = array_search( $user->user_login, $super_admins ) ) ) {
+			unset( $super_admins[$key] );
+			update_site_option( 'site_admins', $super_admins );
+
+			/**
+			 * Fires after the user's Super Admin privileges are revoked.
+			 *
+			 * @since 3.0.0
+			 *
+			 * @param int $user_id ID of the user Super Admin privileges were revoked from.
+			 */
+			do_action( 'revoked_super_admin', $user_id );
+			return true;
+		}
+	}
 	return false;
 }

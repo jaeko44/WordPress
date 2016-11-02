@@ -16,12 +16,12 @@
 
 	// Enable menu toggle for small screens.
 	( function() {
-		if ( ! nav || ! button ) {
+		if ( ! nav.length || ! button.length ) {
 			return;
 		}
 
 		// Hide button if menu is missing or empty.
-		if ( ! menu || ! menu.children().length ) {
+		if ( ! menu.length || ! menu.children().length ) {
 			button.hide();
 			return;
 		}
@@ -95,15 +95,20 @@
 		 */
 		if ( _window.width() > 781 ) {
 			var mastheadHeight = $( '#masthead' ).height(),
-				toolbarOffset, mastheadOffset;
+				mastheadOffset;
 
 			if ( mastheadHeight > 48 ) {
 				body.removeClass( 'masthead-fixed' );
 			}
 
+			mastheadOffset = $( '#site-header' ).height();
+
 			if ( body.is( '.header-image' ) ) {
-				toolbarOffset  = body.is( '.admin-bar' ) ? $( '#wpadminbar' ).height() : 0;
-				mastheadOffset = $( '#masthead' ).offset().top - toolbarOffset;
+
+				// Recaculate the header height when a custom header loads.
+				$( 'body' ).on( 'wp-custom-header-video-loaded', function() {
+					mastheadOffset = $( '#site-header' ).height();
+				} );
 
 				_window.on( 'scroll.twentyfourteen', function() {
 					if ( _window.scrollTop() > mastheadOffset && mastheadHeight < 49 ) {
@@ -112,6 +117,13 @@
 						body.removeClass( 'masthead-fixed' );
 					}
 				} );
+
+				// Update masthead offset after a selective refresh.
+				if ( 'undefined' !== typeof wp && wp.customize && wp.customize.selectiveRefresh ) {
+					wp.customize.selectiveRefresh.bind( 'partial-content-rendered', function() {
+						mastheadOffset = $( '#site-header' ).height();
+					} );
+				}
 			}
 		}
 
@@ -146,9 +158,13 @@
 	} );
 
 	_window.load( function() {
+		var footerSidebar,
+			isCustomizeSelectiveRefresh = ( 'undefined' !== typeof wp && wp.customize && wp.customize.selectiveRefresh );
+
 		// Arrange footer widgets vertically.
 		if ( $.isFunction( $.fn.masonry ) ) {
-			$( '#footer-sidebar' ).masonry( {
+			footerSidebar = $( '#footer-sidebar' );
+			footerSidebar.masonry( {
 				itemSelector: '.widget',
 				columnWidth: function( containerWidth ) {
 					return containerWidth / 4;
@@ -156,6 +172,41 @@
 				gutterWidth: 0,
 				isResizable: true,
 				isRTL: $( 'body' ).is( '.rtl' )
+			} );
+
+			if ( isCustomizeSelectiveRefresh ) {
+
+				// Retain previous masonry-brick initial position.
+				wp.customize.selectiveRefresh.bind( 'partial-content-rendered', function( placement ) {
+					var copyPosition = (
+						placement.partial.extended( wp.customize.widgetsPreview.WidgetPartial ) &&
+						placement.removedNodes instanceof jQuery &&
+						placement.removedNodes.is( '.masonry-brick' ) &&
+						placement.container instanceof jQuery
+					);
+					if ( copyPosition ) {
+						placement.container.css( {
+							position: placement.removedNodes.css( 'position' ),
+							top: placement.removedNodes.css( 'top' ),
+							left: placement.removedNodes.css( 'left' )
+						} );
+					}
+				} );
+
+				// Re-arrange footer widgets after selective refresh event.
+				wp.customize.selectiveRefresh.bind( 'sidebar-updated', function( sidebarPartial ) {
+					if ( 'sidebar-3' === sidebarPartial.sidebarId ) {
+						footerSidebar.masonry( 'reloadItems' );
+						footerSidebar.masonry( 'layout' );
+					}
+				} );
+			}
+		}
+
+		// Initialize audio and video players in Twenty_Fourteen_Ephemera_Widget widget when selectively refreshed in Customizer.
+		if ( isCustomizeSelectiveRefresh && wp.mediaelement ) {
+			wp.customize.selectiveRefresh.bind( 'partial-content-rendered', function() {
+				wp.mediaelement.initialize();
 			} );
 		}
 

@@ -19,8 +19,18 @@
 }
 
 .customize-control-widget_form .widget-top {
+	background: #fff;
 	-webkit-transition: opacity 0.5s;
 	transition: opacity 0.5s;
+}
+
+.customize-control .widget-action {
+	color: #72777c;
+}
+
+.customize-control .widget-top:hover .widget-action,
+.customize-control .widget-action:focus {
+	color: #23282d;
 }
 
 .customize-control-widget_form:not(.widget-rendered) .widget-top {
@@ -130,7 +140,7 @@
 #customize-theme-controls .move-widget-area {
 	display: none;
 	background: #fff;
-	border: 1px solid #dedede;
+	border: 1px solid #ddd;
 	border-top: none;
 	cursor: auto;
 }
@@ -219,8 +229,9 @@
 
 #available-widgets .widget-tpl:hover,
 #available-widgets .widget-tpl.selected {
-	background: #eee;
+	background: #f5f5f5;
 	border-bottom-color: #ccc;
+	border-left: 4px solid #0073aa;
 }
 
 #customize-controls .widget-title h3 {
